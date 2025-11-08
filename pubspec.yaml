@@ -1,0 +1,54 @@
+name: claudine_voice
+description: "Claudine Voice Assistant - MVP"
+publish_to: 'none'
+
+version: 1.0.0+34
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Voice - Speech Recognition (Native Android)
+  speech_to_text: ^7.0.0     # Native STT
+
+  # Voice - Output
+  flutter_tts: ^4.0.2        # Text-to-speech
+  audioplayers: ^6.0.0       # Audio playback for Google TTS
+
+  # AI Backend
+  http: ^1.2.2               # API calls
+
+  # State Management
+  flutter_riverpod: ^2.5.1
+
+  # Permissions
+  permission_handler: ^11.3.1
+
+  # Location
+  geolocator: ^12.0.0        # GPS location
+  geocoding: ^3.0.0          # Reverse geocoding (coordinates to address)
+
+  # Utils
+  package_info_plus: ^8.0.0  # Version info
+  flutter_dotenv: ^5.1.0     # Environment variables
+
+  # Local Storage
+  sqflite: ^2.3.0           # SQLite database for local queue
+  path: ^1.8.3              # Path utilities for database
+
+  # UI
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - .env

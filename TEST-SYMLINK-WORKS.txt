@@ -1,0 +1,9 @@
+✅ Symlink werkt perfect!
+
+Claude kan nu schrijven naar:
+~/franklab/Claudine/Claudine-Voice/
+
+Wat daadwerkelijk aankomt op:
+D:\dev\Claudine\Claudine-Voice\
+
+Test timestamp: 2025-11-06

@@ -1,0 +1,31 @@
+# Flutter/Dart build artifacts
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.iml
+
+# APK builds (store in builds/ directory separately)
+*.apk
+*.aab
+
+# Android
+android/.gradle/
+android/app/build/
+android/captures/
+android/local.properties
+
+# Misc
+*.log
+.DS_Store
+
+# Environment variables (contains API keys!)
+.env
