@@ -11,11 +11,19 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:vibration/vibration.dart';  // Vibration feedback
 import 'services/claudine_api.dart';
 import 'services/queue_manager.dart';
+import 'services/auth_service.dart';
 import 'models/queue_item.dart';
 import 'widgets/queue_indicator.dart';
 import 'screens/home_screen.dart';
+import 'screens/settings_screen.dart';
+import 'screens/queue_screen.dart';
+import 'screens/login_screen.dart';
+
+// Global navigator key for auth flows
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   // Load environment variables
@@ -28,19 +36,66 @@ Future<void> main() async {
   );
 }
 
-class ClaudineVoiceMVP extends StatelessWidget {
+class ClaudineVoiceMVP extends StatefulWidget {
   const ClaudineVoiceMVP({super.key});
+
+  @override
+  State<ClaudineVoiceMVP> createState() => _ClaudineVoiceMVPState();
+}
+
+class _ClaudineVoiceMVPState extends State<ClaudineVoiceMVP> {
+  bool _isCheckingAuth = true;
+  bool _isLoggedIn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAuthStatus();
+  }
+
+  Future<void> _checkAuthStatus() async {
+    final isLoggedIn = await authService.isLoggedIn();
+    if (mounted) {
+      setState(() {
+        _isLoggedIn = isLoggedIn;
+        _isCheckingAuth = false;
+      });
+    }
+  }
+
+  void _onLoginSuccess() {
+    setState(() {
+      _isLoggedIn = true;
+    });
+  }
+
+  void _onLogout() {
+    setState(() {
+      _isLoggedIn = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Claudine',
       debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const HomeScreen(),
+      routes: {
+        '/home': (context) => const HomeScreen(),
+        '/login': (context) => const LoginScreen(),
+      },
+      home: _isCheckingAuth
+          ? const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            )
+          : _isLoggedIn
+              ? const HomeScreen()
+              : const LoginScreen(),
     );
   }
 }
@@ -54,9 +109,6 @@ class VoiceScreen extends StatefulWidget {
 
 class _VoiceScreenState extends State<VoiceScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  // API Keys - loaded from .env file
-  static final String _claudeApiKey = dotenv.env['CLAUDE_API_KEY'] ?? '';
-
   // Google Cloud TTS API Key - loaded from .env file
   static final String _googleTtsApiKey = dotenv.env['GOOGLE_TTS_API_KEY'] ?? '';
 
@@ -66,6 +118,9 @@ class _VoiceScreenState extends State<VoiceScreen>
   final AudioPlayer _audioPlayer = AudioPlayer();
   final ClaudineApiService _api = ClaudineApiService();
   final QueueManager _queueManager = QueueManager();
+
+  // Stream subscriptions
+  StreamSubscription<List<QueueItem>>? _queueItemsSubscription;
 
   // State
   VoiceState _state = VoiceState.idle;
@@ -128,6 +183,33 @@ class _VoiceScreenState extends State<VoiceScreen>
     _refreshStatus();
     _startLocationTimer();
     _queueManager.start(); // Start queue processing
+    _setupQueueListener(); // Listen for queue completions
+  }
+
+  /// Setup listener for queue item completions
+  void _setupQueueListener() {
+    List<QueueItem>? _previousItems;
+
+    _queueItemsSubscription = _queueManager.queueItemsStream.listen((items) async {
+      // Check if any item just completed
+      if (_previousItems != null) {
+        for (final item in items) {
+          final previousItem = _previousItems!.firstWhere(
+            (prev) => prev.id == item.id,
+            orElse: () => item,
+          );
+
+          // If item was processing and is now completed, give haptic feedback
+          if (previousItem.status == QueueItemStatus.processing &&
+              item.status == QueueItemStatus.completed) {
+            debugPrint('✅ Queue item completed: ${item.command}');
+            await _vibrateCompletion();
+          }
+        }
+      }
+
+      _previousItems = List.from(items);
+    });
   }
 
   @override
@@ -476,225 +558,42 @@ class _VoiceScreenState extends State<VoiceScreen>
         _history.removeRange(0, 2);
       }
 
-      debugPrint('🤖 === CALLING CLAUDE API ===');
-      debugPrint('📊 History length: ${_history.length}');
-      debugPrint('📝 Last message: ${_history.last}');
-      _showMessage('Claude API aanroepen...');
+      debugPrint('📥 === ADDING TO QUEUE ===');
+      debugPrint('📊 Command: $text');
+      _showMessage('Verzoek toevoegen aan wachtrij...');
 
-      // Adjust system prompt based on language
-      String locationContext = '';
-      if (_currentLocation != null) {
-        if (_locationStreet.isNotEmpty) {
-          locationContext = '\n\nDe gebruiker is in de buurt van: $_locationStreet, $_locationName';
-        } else {
-          locationContext = '\n\nDe gebruiker is in de buurt van: $_locationName';
-        }
-        // GPS voor context, maar niet voorlezen
-        locationContext += '\n(Exacte GPS: ${_currentLocation!.latitude.toStringAsFixed(4)}, ${_currentLocation!.longitude.toStringAsFixed(4)} - noem deze coördinaten NOOIT hardop)';
+      // Build location string for metadata
+      String? location;
+      if (_locationStreet.isNotEmpty && _locationName.isNotEmpty) {
+        location = '$_locationStreet, $_locationName';
+      } else if (_locationName.isNotEmpty) {
+        location = _locationName;
       }
 
-      // Huidige datum voor calendar context met weekdagen
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final weekdayNames = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'];
-      final weekdayNamesEn = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      // Add to queue for async processing
+      final queueItem = QueueItem.create(
+        command: text,
+        type: QueueItemType.general,
+        metadata: {
+          if (location != null) 'location': location,
+        },
+      );
 
-      // Bereken komende 7 dagen met weekdagen
-      String weekOverview = '';
-      for (int i = 0; i < 7; i++) {
-        final date = today.add(Duration(days: i));
-        final weekdayName = _currentLocale.startsWith('nl')
-            ? weekdayNames[date.weekday - 1]
-            : weekdayNamesEn[date.weekday - 1];
-        final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      // Add to queue (fire and forget - async)
+      _queueManager.addToQueue(queueItem);
 
-        if (i == 0) {
-          weekOverview += '$weekdayName $dateStr (VANDAAG)\n';
-        } else if (i == 1) {
-          weekOverview += '$weekdayName $dateStr (morgen)\n';
-        } else {
-          weekOverview += '$weekdayName $dateStr\n';
-        }
-      }
+      debugPrint('✅ Added to queue, will process async');
 
-      final dateContext = '\n\nHuidige datum en komende week:\n$weekOverview';
+      // Give haptic feedback
+      await _vibrateStart();
 
-      // Provider context - use PRIMARY provider by default
-      final bool hasO365 = _o365Authenticated;
-      final bool hasGoogle = _googleAuthenticated;
-      final int providerCount = (hasO365 ? 1 : 0) + (hasGoogle ? 1 : 0);
-
-      String providerContext = '';
-      if (providerCount == 0) {
-        providerContext = '\n\nGEEN CALENDAR: Gebruiker is niet ingelogd. Vertel hem/haar om in te loggen.';
-      } else if (providerCount == 1) {
-        final provider = hasO365 ? 'o365' : 'google';
-        providerContext = '\n\nCALENDAR: Gebruik automatisch "$provider" als provider.';
-      } else {
-        // Multiple providers - use PRIMARY as default
-        final primaryProvider = _activeProvider ?? (hasO365 ? 'o365' : 'google');
-        final primaryName = primaryProvider == 'o365' ? 'Microsoft' : 'Google';
-
-        providerContext = '''
-
-MEERDERE CALENDARS:
-Gebruiker heeft zowel O365 als Google Calendar.
-PRIMARY CALENDAR: $primaryName ($primaryProvider) - gebruik dit als STANDAARD tenzij gebruiker anders aangeeft!
-
-- Als gebruiker NIET specificeert welke agenda → gebruik automatisch "$primaryProvider" (primary)
-- Als hij/zij zegt "Microsoft", "Outlook", of "werk" → gebruik "o365"
-- Als hij/zij zegt "Google" of "prive" → gebruik "google"
-- Als hij/zij zegt "beide agenda's" of "allebei" → maak TWEE events (één o365, één google)
-
-BELANGRIJK: Bij twijfel gebruik je de PRIMARY calendar ($primaryProvider).''';
-      }
-
-      final systemPrompt = _currentLocale.startsWith('nl')
-          ? '''Je bent Claudine, een vriendelijke persoonlijke assistent met toegang tot Calendar (O365 en Google).
-Spreek Nederlands. Houd antwoorden kort (max 2-3 zinnen).
-Dit is een spraak conversatie.$locationContext$dateContext$providerContext
-
-BELANGRIJK: Als gevraagd wordt waar de gebruiker is, antwoord dan met de locatienaam (bijv. "Je bent in de buurt van [straat], [plaats]"). Noem NOOIT GPS coördinaten hardop.
-
-CALENDAR FUNCTIE:
-Wanneer de gebruiker een afspraak wil maken, extraheer de details en gebruik dit JSON formaat aan het EINDE van je antwoord:
-[CALENDAR:{"title":"Afspraak titel","date":"YYYY-MM-DD","time":"HH:MM","location":"Locatie","provider":"o365 of google"}]
-
-PROVIDER REGELS:
-- Als gebruiker zegt "Microsoft/Outlook/werk agenda" → "provider":"o365"
-- Als gebruiker zegt "Google/prive agenda" → "provider":"google"
-- Als gebruiker zegt "beide agenda's" of "allebei" → maak TWEE CALENDAR tags (één o365, één google)!
-- Als NIET DUIDELIJK en meerdere providers → VRAAG eerst welke agenda!
-- Als maar 1 provider beschikbaar → gebruik die automatisch
-
-Voorbeeld 1 (duidelijk):
-Gebruiker: "Maak een afspraak voor morgen om 14 uur bij de tandarts in mijn Microsoft agenda"
-Jij: "Ik maak een afspraak in je Microsoft agenda. [CALENDAR:{"title":"Tandarts","date":"2025-11-06","time":"14:00","location":"Tandarts","provider":"o365"}]"
-
-Voorbeeld 2 (niet duidelijk, meerdere providers):
-Gebruiker: "Maak een afspraak voor morgen om 14 uur bij de tandarts"
-Jij: "Wil je dit in je Microsoft of Google agenda?"
-
-Voorbeeld 3 (beide agenda's - BELANGRIJK):
-Gebruiker: "Maak een afspraak voor morgen om 10 uur kerk in beide agenda's"
-Jij: "Ik maak de afspraak in beide agenda's. [CALENDAR:{"title":"Kerk","date":"2025-11-06","time":"10:00","location":"Kerk","provider":"o365"}][CALENDAR:{"title":"Kerk","date":"2025-11-06","time":"10:00","location":"Kerk","provider":"google"}]"'''
-          : '''You are Claudine, a friendly personal assistant with access to Office 365 Calendar.
-Speak in English. Keep answers short (max 2-3 sentences).
-This is a voice conversation.$locationContext$dateContext
-
-IMPORTANT: When asked about location, respond with the location name (e.g. "You are near [street], [city]"). NEVER say GPS coordinates out loud.
-
-CALENDAR FUNCTION:
-When the user wants to create an appointment, extract the details and use this JSON format at the END of your response:
-[CALENDAR:{"title":"Appointment title","date":"YYYY-MM-DD","time":"HH:MM","location":"Location"}]
-
-Example (if today is 2025-11-04):
-User: "Make an appointment for tomorrow at 2 PM at the dentist"
-You: "I'll create an appointment for you at the dentist. [CALENDAR:{"title":"Dentist","date":"2025-11-05","time":"14:00","location":"Dentist"}]"''';
-
-      // Call Claude API - try multiple models with fallback
-      final models = [
-        'claude-3-5-sonnet-20240620',  // Try this first
-        'claude-3-sonnet-20240229',     // Fallback to Claude 3
-        'claude-3-haiku-20240307',      // Last resort (cheapest)
-      ];
-
-      http.Response? response;
-      String? usedModel;
-
-      for (final model in models) {
-        final requestBody = {
-          'model': model,
-          'max_tokens': 300,  // Verhoogd voor calendar JSON
-          'system': systemPrompt,
-          'messages': _history,
-        };
-
-        debugPrint('🤖 Trying model: $model');
-
-        response = await http.post(
-          Uri.parse('https://api.anthropic.com/v1/messages'),
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': _claudeApiKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: jsonEncode(requestBody),
-        );
-
-        if (response.statusCode == 200) {
-          usedModel = model;
-          debugPrint('✓ Success with model: $model');
-          break;
-        } else if (response.statusCode == 404) {
-          debugPrint('⚠️ Model $model not found, trying next...');
-          continue;
-        } else {
-          // Other error, don't retry
-          break;
-        }
-      }
-
-      if (response == null || response.statusCode != 200) {
-        final statusCode = response?.statusCode ?? 'unknown';
-        final body = response?.body ?? 'No response';
-        debugPrint('❌ === CLAUDE API ERROR ===');
-        debugPrint('❌ Status code: $statusCode');
-        debugPrint('❌ Response body: $body');
-        _showError('Claude API fout: $statusCode');
-        throw Exception('API error: $statusCode\n$body');
-      }
-
-      final data = jsonDecode(response.body);
-      debugPrint('✓ Claude response with model: $usedModel');
-      String answer = data['content'][0]['text'] as String;
-
-      debugPrint('🤖 Claude full answer: $answer');
-
-      // Check for calendar event creation (kan meerdere zijn!)
-      String displayAnswer = answer;
-      if (answer.contains('[CALENDAR:')) {
-        debugPrint('✅ CALENDAR tag(s) found in answer!');
-
-        // Vind ALLE calendar tags (niet alleen de eerste)
-        final matches = RegExp(r'\[CALENDAR:(.*?)\]').allMatches(answer);
-
-        if (matches.isNotEmpty) {
-          debugPrint('📅 Found ${matches.length} calendar event(s)');
-
-          // Verwijder alle CALENDAR tags uit display answer
-          displayAnswer = answer;
-          for (final match in matches) {
-            displayAnswer = displayAnswer.replaceAll(match.group(0)!, '').trim();
-          }
-
-          // Maak elk event aan
-          for (final match in matches) {
-            final calendarJson = match.group(1);
-            debugPrint('📅 Processing calendar event: $calendarJson');
-            _createCalendarEvent(calendarJson!);
-          }
-        }
-      }
-
-      // Add to history
-      _history.add({'role': 'assistant', 'content': displayAnswer});
-
+      // Return to idle immediately
       setState(() {
-        _lastResponse = displayAnswer;
-        _state = VoiceState.speaking;
+        _state = VoiceState.idle;
       });
 
       debugPrint('User: $text');
-      debugPrint('Claudine: $displayAnswer');
-
-      // Google TTS typically has better buffering, but still add small delay
-      await Future.delayed(const Duration(milliseconds: 200));
-
-      debugPrint('🗣️ Speaking: $displayAnswer');
-
-      // Speak directly without padding - Google TTS handles this better
-      await _tts.speak(displayAnswer);
+      debugPrint('Claudine: [Queue processing]');
     } catch (e) {
       debugPrint('Error: $e');
       _showError('Fout: ${e.toString()}');
@@ -702,75 +601,35 @@ You: "I'll create an appointment for you at the dentist. [CALENDAR:{"title":"Den
     }
   }
 
-  Future<void> _createCalendarEvent(String calendarJson) async {
-    debugPrint('📅 === START CALENDAR EVENT CREATION ===');
-    debugPrint('📅 Raw JSON: $calendarJson');
 
+  /// Vibration feedback for request submitted
+  Future<void> _vibrateStart() async {
     try {
-      final eventData = jsonDecode(calendarJson);
-      debugPrint('📅 Parsed JSON successfully');
-
-      final title = eventData['title'] as String;
-      final dateStr = eventData['date'] as String;
-      final timeStr = eventData['time'] as String?;
-      final location = eventData['location'] as String?;
-      final provider = eventData['provider'] as String?;  // 'o365' or 'google'
-
-      debugPrint('📅 Extracted data:');
-      debugPrint('  Title: $title');
-      debugPrint('  Date: $dateStr');
-      debugPrint('  Time: $timeStr');
-      debugPrint('  Location: $location');
-      debugPrint('  Provider: $provider');
-
-      // Parse date and time
-      final dateParts = dateStr.split('-');
-      final year = int.parse(dateParts[0]);
-      final month = int.parse(dateParts[1]);
-      final day = int.parse(dateParts[2]);
-
-      int hour = 9; // Default 9:00 AM
-      int minute = 0;
-
-      if (timeStr != null && timeStr.contains(':')) {
-        final timeParts = timeStr.split(':');
-        hour = int.parse(timeParts[0]);
-        minute = int.parse(timeParts[1]);
+      debugPrint('🔔 Attempting start vibration...');
+      if (await Vibration.hasVibrator() ?? false) {
+        debugPrint('🔔 Device has vibrator, vibrating for 200ms');
+        Vibration.vibrate(duration: 200);  // Stronger vibration (200ms)
+      } else {
+        debugPrint('⚠️ No vibrator detected');
       }
-
-      final startDateTime = DateTime(year, month, day, hour, minute);
-      final endDateTime = startDateTime.add(const Duration(hours: 1));
-
-      debugPrint('📅 Parsed DateTime:');
-      debugPrint('  Start: $startDateTime');
-      debugPrint('  End: $endDateTime');
-
-      // Add to queue instead of calling API directly
-      debugPrint('📅 Adding to queue with provider: $provider...');
-
-      final queueItem = QueueItem.create(
-        command: title,
-        type: QueueItemType.calendarCreate,
-        metadata: {
-          'title': title,
-          'start': startDateTime.toIso8601String(),
-          'end': endDateTime.toIso8601String(),
-          if (location != null) 'location': location,
-          if (provider != null) 'provider': provider,
-        },
-      );
-
-      await _queueManager.addToQueue(queueItem);
-
-      debugPrint('✅ Added to queue, will process async');
-      _showMessage('📥 Afspraak toegevoegd aan wachtrij: $title');
-    } catch (e, stackTrace) {
-      debugPrint('❌ Error creating calendar event: $e');
-      debugPrint('❌ Stack trace: $stackTrace');
-      _showError('Fout bij aanmaken afspraak: ${e.toString()}');
+    } catch (e) {
+      debugPrint('❌ Vibration error: $e');
     }
+  }
 
-    debugPrint('📅 === END CALENDAR EVENT CREATION ===');
+  /// Vibration feedback for request completed
+  Future<void> _vibrateCompletion() async {
+    try {
+      debugPrint('🔔 Attempting completion vibration...');
+      if (await Vibration.hasVibrator() ?? false) {
+        debugPrint('🔔 Device has vibrator, vibrating for 400ms');
+        Vibration.vibrate(duration: 400);  // Strong vibration (400ms)
+      } else {
+        debugPrint('⚠️ No vibrator detected');
+      }
+    } catch (e) {
+      debugPrint('❌ Vibration error: $e');
+    }
   }
 
   void _showError(String message) {
@@ -892,6 +751,161 @@ You: "I'll create an appointment for you at the dentist. [CALENDAR:{"title":"Den
     }
   }
 
+  void _openSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SettingsScreen(
+          o365Authenticated: _o365Authenticated,
+          o365User: _o365User,
+          googleAuthenticated: _googleAuthenticated,
+          googleUser: _googleUser,
+          activeProvider: _activeProvider,
+          onSetPrimaryProvider: _handleSetPrimaryProvider,
+          onLogin: _handleLogin,
+          onLogout: _handleLogout,
+          locationName: _locationName,
+          locationStreet: _locationStreet,
+          locationInfo: _locationInfo,
+          onUserLogout: () {
+            // Navigate back to login screen after user logout
+            Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleLogin(String provider) async {
+    try {
+      debugPrint('🔐 Login to $provider...');
+
+      // Queue the login request
+      await _queueManager.addToQueue(
+        QueueItem.create(
+          command: 'Login to $provider',
+          type: QueueItemType.general,
+          metadata: {'action': 'login', 'provider': provider},
+        ),
+      );
+
+      // Show feedback
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Login to $provider queued'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      // Refresh auth status after a moment
+      await Future.delayed(const Duration(seconds: 1));
+      await _checkAuthStatus();
+    } catch (e) {
+      debugPrint('❌ Login failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Login failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleLogout(String provider) async {
+    try {
+      debugPrint('🔐 Logout from $provider...');
+
+      // Queue the logout request
+      await _queueManager.addToQueue(
+        QueueItem.create(
+          command: 'Logout from $provider',
+          type: QueueItemType.general,
+          metadata: {'action': 'logout', 'provider': provider},
+        ),
+      );
+
+      // Show feedback
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout from $provider queued'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      // Refresh auth status
+      await Future.delayed(const Duration(seconds: 1));
+      await _checkAuthStatus();
+    } catch (e) {
+      debugPrint('❌ Logout failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleSetPrimaryProvider(String provider) async {
+    try {
+      debugPrint('⭐ Setting $provider as primary provider...');
+
+      // Queue the set primary provider request
+      await _queueManager.addToQueue(
+        QueueItem.create(
+          command: 'Set $provider as primary',
+          type: QueueItemType.general,
+          metadata: {'action': 'set_primary_provider', 'provider': provider},
+        ),
+      );
+
+      // Also call API directly
+      final success = await _api.setPrimaryProvider(provider);
+
+      if (success) {
+        // Update local state
+        setState(() {
+          _activeProvider = provider;
+        });
+
+        // Show feedback
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$provider set as primary mailbox'),
+              duration: const Duration(seconds: 2),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+
+        // Refresh auth status
+        await Future.delayed(const Duration(milliseconds: 500));
+        await _checkAuthStatus();
+      } else {
+        throw Exception('API call failed');
+      }
+    } catch (e) {
+      debugPrint('❌ Set primary provider failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to set primary provider: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   void _startLocationTimer() {
     // Refresh location elke 30 minuten
     _locationTimer = Timer.periodic(const Duration(minutes: 30), (timer) {
@@ -904,6 +918,7 @@ You: "I'll create an appointment for you at the dentist. [CALENDAR:{"title":"Den
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _locationTimer?.cancel();
+    _queueItemsSubscription?.cancel();
     _pulseController.dispose();
     _speech.stop();
     _tts.stop();
@@ -913,36 +928,83 @@ You: "I'll create an appointment for you at the dentist. [CALENDAR:{"title":"Den
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Scaffold(
-          body: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: _getGradientColors(),
-              ),
-            ),
-            child: SafeArea(
-              child: Column(
-                children: [
-                  _buildHeader(),
-                  const Spacer(),
-                  _buildVisualizer(),
-                  const SizedBox(height: 32),
-                  _buildStatus(),
-                  const Spacer(),
-                  _buildControls(),
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: _getGradientColors(),
           ),
         ),
-        // Queue indicator floating badge
-        const QueueIndicator(),
-      ],
+        child: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(),
+              const Spacer(),
+              _buildVisualizer(),
+              const SizedBox(height: 32),
+              _buildStatus(),
+              const Spacer(),
+              _buildControls(),
+              const SizedBox(height: 32),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQueueBadge() {
+    return StreamBuilder<int>(
+      stream: _queueManager.queueCountStream,
+      initialData: 0,
+      builder: (context, snapshot) {
+        final queueCount = snapshot.data ?? 0;
+        final isEmpty = queueCount == 0;
+
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => QueueScreen(),
+              ),
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: isEmpty
+                  ? Colors.white.withOpacity(0.3)
+                  : Colors.blue.withOpacity(0.8),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.queue,
+                  color: Colors.white,
+                  size: 16,
+                ),
+                // Toon alleen cijfer als > 0
+                if (!isEmpty) ...[
+                  const SizedBox(width: 4),
+                  Text(
+                    '$queueCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -961,65 +1023,38 @@ You: "I'll create an appointment for you at the dentist. [CALENDAR:{"title":"Den
                       fontWeight: FontWeight.bold,
                     ),
               ),
-              if (_versionInfo.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _versionInfo,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          if (_locationInfo.isNotEmpty || _locationName.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.gps_fixed, color: Colors.white70, size: 14),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    _locationInfo,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 10,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            if (_locationName.isNotEmpty) ...[
-              const SizedBox(height: 4),
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.location_city, color: Colors.white70, size: 14),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      _locationStreet.isNotEmpty
-                          ? '$_locationStreet, $_locationName'
-                          : 'Locatie: $_locationName',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
+                  // Queue indicator badge
+                  _buildQueueBadge(),
+                  const SizedBox(width: 8),
+                  if (_versionInfo.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      overflow: TextOverflow.ellipsis,
+                      child: Text(
+                        _versionInfo,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.settings, color: Colors.white),
+                    onPressed: _openSettings,
+                    tooltip: 'Settings',
                   ),
                 ],
               ),
             ],
-          ],
+          ),
           // Status indicators
           const SizedBox(height: 12),
           Container(
@@ -1074,6 +1109,13 @@ You: "I'll create an appointment for you at the dentist. [CALENDAR:{"title":"Den
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    // Star for primary provider
+                    if (_activeProvider == 'o365')
+                      const Icon(
+                        Icons.star,
+                        color: Colors.amber,
+                        size: 16,
+                      ),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -1099,6 +1141,13 @@ You: "I'll create an appointment for you at the dentist. [CALENDAR:{"title":"Den
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    // Star for primary provider
+                    if (_activeProvider == 'google')
+                      const Icon(
+                        Icons.star,
+                        color: Colors.amber,
+                        size: 16,
+                      ),
                   ],
                 ),
                 const SizedBox(height: 6),

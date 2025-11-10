@@ -2,7 +2,7 @@ name: claudine_voice
 description: "Claudine Voice Assistant - MVP"
 publish_to: 'none'
 
-version: 1.0.0+35
+version: 1.0.0+51
 
 environment:
   sdk: ^3.9.2
@@ -26,6 +26,7 @@ dependencies:
 
   # Permissions
   permission_handler: ^11.3.1
+  vibration: ^2.0.0  # Vibration feedback
 
   # Location
   geolocator: ^12.0.0        # GPS location
@@ -38,6 +39,11 @@ dependencies:
   # Local Storage
   sqflite: ^2.3.0           # SQLite database for local queue
   path: ^1.8.3              # Path utilities for database
+  shared_preferences: ^2.2.2  # JWT token storage
+
+  # Authentication
+  google_sign_in: ^6.2.1    # Google OAuth login
+  aad_oauth: ^1.0.1         # Microsoft Azure AD OAuth login
 
   # UI
   cupertino_icons: ^1.0.8
