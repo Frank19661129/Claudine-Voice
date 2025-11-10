@@ -8,7 +8,9 @@ Voor de Android app heb je de volgende gegevens nodig:
 
 - **Package Name:** `com.franklab.claudine_voice`
 - **Signature Hash (Base64-encoded SHA1):** `pfcoW2cCXjT5NJV6ZUXd1F1UAfA=`
-- **Redirect URI:** `msauth://com.franklab.claudine_voice/pfcoW2cCXjT5NJV6ZUXd1F1UAfA`
+- **Redirect URI:** `msauth://com.franklab.claudine_voice/pfcoW2cCXjT5NJV6ZUXd1F1UAfA=`
+
+> **Belangrijk:** De redirect URI eindigt met een `=` teken. Azure Portal zal dit URL-encoden naar `%3D` in de configuratie.
 
 > **Let op:** Azure Portal verwacht de signature hash in **Base64** formaat, niet Hex!
 

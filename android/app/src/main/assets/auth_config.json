@@ -1,7 +1,7 @@
 {
   "client_id": "b73e3922-fb5e-4d65-ad70-1f88b7c09df5",
   "authorization_user_agent": "DEFAULT",
-  "redirect_uri": "msauth://com.franklab.claudine_voice/pfcoW2cCXjT5NJV6ZUXd1F1UAfA",
+  "redirect_uri": "msauth://com.franklab.claudine_voice/pfcoW2cCXjT5NJV6ZUXd1F1UAfA=",
   "authorities": [
     {
       "type": "AAD",

@@ -2,7 +2,7 @@ name: claudine_voice
 description: "Claudine Voice Assistant - MVP"
 publish_to: 'none'
 
-version: 1.0.0+51
+version: 1.0.0+53
 
 environment:
   sdk: ^3.9.2

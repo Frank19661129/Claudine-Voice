@@ -49,7 +49,7 @@
                 <data
                     android:scheme="msauth"
                     android:host="com.franklab.claudine_voice"
-                    android:path="/pfcoW2cCXjT5NJV6ZUXd1F1UAfA" />
+                    android:path="/pfcoW2cCXjT5NJV6ZUXd1F1UAfA=" />
             </intent-filter>
         </activity>
 
