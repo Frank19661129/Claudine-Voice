@@ -103,6 +103,15 @@ class QueueManager {
     await _broadcastQueueState();
   }
 
+  /// Verwijder alle items (for cache clear on server restart)
+  Future<void> clearAll() async {
+    final allItems = await _db.getAllItems();
+    for (final item in allItems) {
+      await _db.delete(item.id!);
+    }
+    await _broadcastQueueState();
+  }
+
   /// Haal alle queue items op
   Future<List<QueueItem>> getAllItems() async {
     return await _db.getAllItems();
@@ -177,6 +186,10 @@ class QueueManager {
           result = await _processCalendarCreate(item);
           break;
 
+        case QueueItemType.reminder:
+          result = await _processReminder(item);
+          break;
+
         case QueueItemType.general:
         default:
           result = await _processGeneral(item);
@@ -231,14 +244,68 @@ class QueueManager {
     }
   }
 
-  /// Verwerk algemene opdracht
-  Future<String> _processGeneral(QueueItem item) async {
-    final response = await _api.createEventFromVoice(item.command);
+  /// Verwerk reminder opdracht
+  Future<String> _processReminder(QueueItem item) async {
+    debugPrint('🔔 Processing reminder: ${item.command}');
+    final metadata = item.metadata ?? {};
+    final location = metadata['location'] as String?;
+
+    // Use createEventFromVoice which has Claude AI processing
+    final response = await _api.createEventFromVoice(
+      item.command,
+      location: location,
+    );
 
     if (response?['success'] == true) {
-      return response?['message'] ?? 'Command processed';
+      return response?['response'] ?? response?['message'] ?? 'Herinnering aangemaakt';
     } else {
-      throw Exception(response?['error'] ?? 'Failed to process command');
+      throw Exception(response?['error'] ?? 'Kon herinnering niet aanmaken');
+    }
+  }
+
+  /// Verwerk algemene opdracht
+  Future<String> _processGeneral(QueueItem item) async {
+    final metadata = item.metadata ?? {};
+    final action = metadata['action'] as String?;
+
+    // Check for specific actions
+    if (action == 'set_primary_provider') {
+      final provider = metadata['provider'] as String?;
+      if (provider == null) {
+        throw Exception('No provider specified');
+      }
+
+      debugPrint('⭐ Processing set_primary_provider: $provider');
+      final success = await _api.setPrimaryProvider(provider);
+
+      if (success) {
+        return 'Primary provider set to $provider';
+      } else {
+        throw Exception('Failed to set primary provider');
+      }
+    } else if (action == 'login') {
+      final provider = metadata['provider'] as String?;
+      debugPrint('🔐 Processing login: $provider');
+      // TODO: Implement login logic
+      return 'Login request queued for $provider';
+    } else if (action == 'logout') {
+      final provider = metadata['provider'] as String?;
+      debugPrint('🔓 Processing logout: $provider');
+      // TODO: Implement logout logic
+      return 'Logout request queued for $provider';
+    } else {
+      // Fallback to voice command processing
+      final location = metadata['location'] as String?;
+      final response = await _api.createEventFromVoice(
+        item.command,
+        location: location,
+      );
+
+      if (response?['success'] == true) {
+        return response?['response'] ?? response?['message'] ?? 'Command processed';
+      } else {
+        throw Exception(response?['error'] ?? 'Failed to process command');
+      }
     }
   }
 

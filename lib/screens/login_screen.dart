@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sign_in_button/sign_in_button.dart';
 import '../services/auth_service.dart';
 import '../services/claudine_api.dart';
 import '../main.dart' show navigatorKey;
@@ -121,28 +122,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   // Google Sign-In Button
                   if (!_isLoading)
-                    ElevatedButton.icon(
+                    SignInButton(
+                      Buttons.google,
+                      text: "Sign in with Google",
                       onPressed: _handleGoogleSignIn,
-                      icon: Image.asset(
-                        'assets/google_logo.png',
-                        height: 24,
-                        errorBuilder: (context, error, stackTrace) =>
-                            const Icon(Icons.login, size: 24),
-                      ),
-                      label: const Text(
-                        'Sign in with Google',
-                        style: TextStyle(fontSize: 18),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.grey.shade800,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 16,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 8,
                       ),
                     ),
 
@@ -151,23 +137,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   // Microsoft Sign-In Button
                   if (!_isLoading)
-                    ElevatedButton.icon(
+                    SignInButton(
+                      Buttons.microsoft,
+                      text: "Sign in with Microsoft",
                       onPressed: _handleMicrosoftSignIn,
-                      icon: const Icon(Icons.business, size: 24),
-                      label: const Text(
-                        'Sign in with Microsoft',
-                        style: TextStyle(fontSize: 18),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.grey.shade800,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 16,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 8,
                       ),
                     ),
 

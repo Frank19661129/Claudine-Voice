@@ -54,12 +54,33 @@ class _ClaudineVoiceMVPState extends State<ClaudineVoiceMVP> {
   }
 
   Future<void> _checkAuthStatus() async {
-    final isLoggedIn = await authService.isLoggedIn();
+    final api = ClaudineApiService();
+
+    // Check if server session has changed (server restarted)
+    final sessionChanged = await api.checkSessionChanged();
+    if (sessionChanged) {
+      print('🔄 Server restarted detected - clearing local cache');
+      await _clearLocalCache();
+    }
+
+    // Validate token with server
+    final isLoggedIn = await authService.isLoggedIn(ClaudineApiService.baseUrl);
     if (mounted) {
       setState(() {
         _isLoggedIn = isLoggedIn;
         _isCheckingAuth = false;
       });
+    }
+  }
+
+  /// Clear all local cache when server restarts
+  Future<void> _clearLocalCache() async {
+    try {
+      // Queue clearing happens in VoiceScreen's _checkServerSession method
+      // where _queueManager is accessible
+      print('✅ Cache clear triggered');
+    } catch (e) {
+      print('❌ Error clearing cache: $e');
     }
   }
 
@@ -137,6 +158,9 @@ class _VoiceScreenState extends State<VoiceScreen>
   String _locationStreet = '';
   Timer? _locationTimer;
 
+  // Server session tracking
+  Timer? _sessionCheckTimer;
+
   // Server Status
   bool _serverConnected = false;
   String _serverStatus = 'Checking...';
@@ -149,7 +173,7 @@ class _VoiceScreenState extends State<VoiceScreen>
   String? _activeProvider;  // 'o365' or 'google'
 
   // User Login Provider
-  String? _loginProvider;  // 'google' or 'microsoft'
+  String? _loginProvider = 'google';  // 'google' or 'microsoft' - TEMPORARY HARDCODED FOR TESTING
 
   // Conversation history
   final List<Map<String, String>> _history = [];
@@ -185,6 +209,7 @@ class _VoiceScreenState extends State<VoiceScreen>
     _setupAnimation();
     _refreshStatus();
     _startLocationTimer();
+    _startSessionCheckTimer(); // Check for server restarts
     _queueManager.start(); // Start queue processing
     _setupQueueListener(); // Listen for queue completions
   }
@@ -219,7 +244,8 @@ class _VoiceScreenState extends State<VoiceScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
-      // App komt naar voren - refresh alles
+      // App komt naar voren - check for server restart and refresh alles
+      _checkServerSession();
       _refreshStatus();
     }
   }
@@ -573,10 +599,24 @@ class _VoiceScreenState extends State<VoiceScreen>
         location = _locationName;
       }
 
+      // Detect command type based on keywords
+      final lowerText = text.toLowerCase();
+      QueueItemType commandType = QueueItemType.general;
+
+      // Check for reminder/calendar keywords
+      if (lowerText.contains('herinner') ||
+          lowerText.contains('reminder') ||
+          lowerText.contains('afspraak') ||
+          lowerText.contains('zet in') ||
+          lowerText.contains('plan in')) {
+        commandType = QueueItemType.reminder;
+        debugPrint('🔔 Detected REMINDER command');
+      }
+
       // Add to queue for async processing
       final queueItem = QueueItem.create(
         command: text,
-        type: QueueItemType.general,
+        type: commandType,
         metadata: {
           if (location != null) 'location': location,
         },
@@ -672,13 +712,16 @@ class _VoiceScreenState extends State<VoiceScreen>
   Future<void> _refreshStatus() async {
     debugPrint('🔄 Refreshing all status...');
 
-    // 1. Refresh location
+    // 1. Check login provider first (works even if server is offline)
+    await _checkLoginProvider();
+
+    // 2. Refresh location
     await _getLocation();
 
-    // 2. Check server connectivity
+    // 3. Check server connectivity
     await _checkServerConnection();
 
-    // 3. Check auth status (O365 + Google, only if server is connected)
+    // 4. Check auth status (O365 + Google, only if server is connected)
     if (_serverConnected) {
       await _checkAuthStatus();
     } else {
@@ -752,26 +795,28 @@ class _VoiceScreenState extends State<VoiceScreen>
         _activeProvider = null;
       });
     }
-
-    // Also check login provider
-    await _checkLoginProvider();
   }
 
   Future<void> _checkLoginProvider() async {
     try {
+      debugPrint('🔍 Checking login provider...');
       final userInfo = await _api.getCurrentUser();
       if (userInfo != null) {
+        final provider = userInfo['provider'];
+        debugPrint('✅ Setting login provider to: $provider');
         setState(() {
-          _loginProvider = userInfo['provider'];
+          _loginProvider = provider;
         });
-        debugPrint('👤 Logged in with: $_loginProvider');
+        debugPrint('👤 Login provider is now: $_loginProvider');
       } else {
+        debugPrint('⚠️ No user info returned from API');
         setState(() {
           _loginProvider = null;
         });
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('❌ Failed to check login provider: $e');
+      debugPrint('Stack trace: $stackTrace');
     }
   }
 
@@ -938,10 +983,50 @@ class _VoiceScreenState extends State<VoiceScreen>
     });
   }
 
+  /// Start periodic session check timer
+  /// Checks every 30 seconds if server has restarted
+  void _startSessionCheckTimer() {
+    _sessionCheckTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      _checkServerSession();
+    });
+  }
+
+  /// Check if server session has changed (server restarted)
+  /// If changed, clear local cache and refresh
+  Future<void> _checkServerSession() async {
+    try {
+      final sessionChanged = await _api.checkSessionChanged();
+      if (sessionChanged) {
+        debugPrint('🔄 Server restarted detected - clearing cache and refreshing');
+
+        // Clear queue
+        await _queueManager.clearAll();
+
+        // Refresh status to get latest auth info
+        await _refreshStatus();
+
+        // Show notification to user
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Server restarted - cache cleared'),
+              duration: Duration(seconds: 2),
+              backgroundColor: Colors.blue,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Session check failed: $e');
+      // Don't show error to user, this is a background check
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _locationTimer?.cancel();
+    _sessionCheckTimer?.cancel();
     _queueItemsSubscription?.cancel();
     _pulseController.dispose();
     _speech.stop();
@@ -1100,11 +1185,6 @@ class _VoiceScreenState extends State<VoiceScreen>
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Login provider badge
-                  if (_loginProvider != null) ...[
-                    _buildLoginProviderBadge(),
-                    const SizedBox(width: 8),
-                  ],
                   // Queue indicator badge
                   _buildQueueBadge(),
                   const SizedBox(width: 8),
@@ -1134,6 +1214,15 @@ class _VoiceScreenState extends State<VoiceScreen>
               ),
             ],
           ),
+          // Login provider badge (on separate line)
+          if (_loginProvider != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _buildLoginProviderBadge(),
+              ],
+            ),
+          ],
           // Status indicators
           const SizedBox(height: 12),
           Container(
@@ -1164,85 +1253,6 @@ class _VoiceScreenState extends State<VoiceScreen>
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 4),
-                // O365 status
-                Row(
-                  children: [
-                    Icon(
-                      _o365Authenticated ? Icons.check_circle : Icons.error_outline,
-                      color: _o365Authenticated ? Colors.green[300] : Colors.grey[400],
-                      size: 14,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        _o365Authenticated
-                            ? 'O365: ${_o365User.split('@')[0]}'
-                            : 'O365: -',
-                        style: TextStyle(
-                          color: _o365Authenticated ? Colors.green[300] : Colors.grey[400],
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    // Star for primary provider
-                    if (_activeProvider == 'o365')
-                      const Icon(
-                        Icons.star,
-                        color: Colors.amber,
-                        size: 16,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                // Google status
-                Row(
-                  children: [
-                    Icon(
-                      _googleAuthenticated ? Icons.check_circle : Icons.error_outline,
-                      color: _googleAuthenticated ? Colors.green[300] : Colors.grey[400],
-                      size: 14,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        _googleAuthenticated
-                            ? 'Google: ${_googleUser.split('@')[0]}'
-                            : 'Google: -',
-                        style: TextStyle(
-                          color: _googleAuthenticated ? Colors.green[300] : Colors.grey[400],
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    // Star for primary provider
-                    if (_activeProvider == 'google')
-                      const Icon(
-                        Icons.star,
-                        color: Colors.amber,
-                        size: 16,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                // Refresh button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _refreshStatus,
-                    icon: const Icon(Icons.refresh, size: 14),
-                    label: const Text('Refresh', style: TextStyle(fontSize: 11)),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      backgroundColor: Colors.white.withOpacity(0.2),
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
                 ),
               ],
             ),

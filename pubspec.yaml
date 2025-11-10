@@ -2,7 +2,7 @@ name: claudine_voice
 description: "Claudine Voice Assistant - MVP"
 publish_to: 'none'
 
-version: 1.0.0+55
+version: 1.0.0+63
 
 environment:
   sdk: ^3.9.2
@@ -44,6 +44,7 @@ dependencies:
   # Authentication
   google_sign_in: ^6.2.1    # Google OAuth login
   aad_oauth: ^1.0.1         # Microsoft Azure AD OAuth login
+  sign_in_button: ^3.2.0    # Official sign-in buttons UI
 
   # UI
   cupertino_icons: ^1.0.8

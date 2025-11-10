@@ -41,6 +41,67 @@ class ClaudineApiService {
     }
   }
 
+  /// Get server session info
+  /// Returns session_id that changes on every server restart
+  Future<Map<String, dynamic>?> getSessionInfo() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/session'),
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return null;
+    } catch (e) {
+      print('Get session info failed: $e');
+      return null;
+    }
+  }
+
+  /// Check if server session has changed (indicating server restart)
+  /// Returns true if session changed and cache should be cleared
+  Future<bool> checkSessionChanged() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedSessionId = prefs.getString('server_session_id');
+
+      final sessionInfo = await getSessionInfo();
+      if (sessionInfo == null) {
+        return false; // Can't determine, don't clear cache
+      }
+
+      final currentSessionId = sessionInfo['session_id'] as String?;
+      if (currentSessionId == null) {
+        return false;
+      }
+
+      // First time checking or session changed
+      if (savedSessionId == null) {
+        // First time, save it
+        await prefs.setString('server_session_id', currentSessionId);
+        print('🆔 Saved server session ID: $currentSessionId');
+        return false;
+      }
+
+      if (savedSessionId != currentSessionId) {
+        // Session changed! Server was restarted
+        print('🔄 Server session changed!');
+        print('   Old: $savedSessionId');
+        print('   New: $currentSessionId');
+
+        // Update to new session ID
+        await prefs.setString('server_session_id', currentSessionId);
+        return true;
+      }
+
+      return false; // Session unchanged
+    } catch (e) {
+      print('Check session changed failed: $e');
+      return false;
+    }
+  }
+
   /// Check of gebruiker is geauthenticeerd
   Future<Map<String, dynamic>?> getAuthInfo() async {
     try {
@@ -208,19 +269,44 @@ class ClaudineApiService {
         if (location != null) 'location': location,
       };
 
+      debugPrint('🌐 Sending to: $baseUrl/api/calendar/create-from-voice');
+      debugPrint('🔑 Auth headers: ${headers.containsKey('Authorization') ? 'YES' : 'NO'}');
+      debugPrint('📝 Command: $command');
+
       final response = await http.post(
         Uri.parse('$baseUrl/api/calendar/create-from-voice'),
         headers: headers,
         body: json.encode(requestBody),
       ).timeout(const Duration(seconds: 20));
 
+      debugPrint('📡 Response status: ${response.statusCode}');
+      debugPrint('📦 Response body: ${response.body}');
+
       if (response.statusCode == 200) {
         return json.decode(response.body);
+      } else {
+        // Return error details
+        try {
+          final errorData = json.decode(response.body);
+          return {
+            'success': false,
+            'error': errorData['detail'] ?? 'Unknown error',
+            'status_code': response.statusCode
+          };
+        } catch (e) {
+          return {
+            'success': false,
+            'error': 'Server returned ${response.statusCode}',
+            'status_code': response.statusCode
+          };
+        }
       }
-      return null;
     } catch (e) {
-      print('Create from voice failed: $e');
-      return null;
+      debugPrint('❌ Create from voice exception: $e');
+      return {
+        'success': false,
+        'error': 'Exception: $e'
+      };
     }
   }
 
@@ -247,19 +333,28 @@ class ClaudineApiService {
   /// Get current user info (including login provider)
   Future<Map<String, dynamic>?> getCurrentUser() async {
     try {
+      debugPrint('👤 Getting current user info...');
       final authHeaders = await _getAuthHeaders();
       if (authHeaders.isEmpty) {
+        debugPrint('⚠️ No auth headers - user not logged in');
         return null; // Not logged in
       }
 
+      debugPrint('📡 Calling /api/auth/user/me...');
       final response = await http.get(
         Uri.parse('$baseUrl/api/auth/user/me'),
         headers: authHeaders,
       ).timeout(const Duration(seconds: 5));
 
+      debugPrint('📡 User/me response: ${response.statusCode}');
+      debugPrint('📦 Response body: ${response.body}');
+
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        final data = json.decode(response.body);
+        debugPrint('✅ Got user info: provider=${data['provider']}, email=${data['email']}');
+        return data;
       }
+      debugPrint('⚠️ User/me returned ${response.statusCode}');
       return null;
     } catch (e) {
       debugPrint('❌ Get current user failed: $e');

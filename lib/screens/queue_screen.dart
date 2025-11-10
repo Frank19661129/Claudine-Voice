@@ -31,6 +31,8 @@ class _QueueScreenState extends State<QueueScreen> {
 
   Future<void> _loadItems() async {
     final items = await _queueManager.getAllItems();
+    // Sort by created_at descending (newest first)
+    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     setState(() {
       _items = items;
     });

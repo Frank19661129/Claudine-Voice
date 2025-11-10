@@ -13,6 +13,7 @@ class AuthService {
   static const String _userIdKey = 'claudine_user_id';
   static const String _userEmailKey = 'claudine_user_email';
   static const String _userNameKey = 'claudine_user_name';
+  static const String _loginProviderKey = 'claudine_login_provider'; // 'google' or 'microsoft'
 
   // Google Sign-In with Web Client ID from .env
   late final GoogleSignIn _googleSignIn;
@@ -60,16 +61,58 @@ class AuthService {
   String? _userId;
   String? _userEmail;
   String? _userName;
+  String? _loginProvider; // 'google' or 'microsoft'
 
-  /// Check if user is logged in
-  Future<bool> isLoggedIn() async {
-    if (_jwtToken != null) return true;
+  /// Validate JWT token with server
+  Future<bool> validateToken(String serverUrl) async {
+    if (_jwtToken == null) return false;
 
+    try {
+      final response = await http.get(
+        Uri.parse('$serverUrl/api/auth/validate'),
+        headers: getAuthHeaders(),
+      ).timeout(const Duration(seconds: 5));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('⚠️ Token validation failed: $e');
+      return false;
+    }
+  }
+
+  /// Check if user is logged in (with token validation)
+  Future<bool> isLoggedIn([String? serverUrl]) async {
+    // First check if token exists in memory
+    if (_jwtToken != null) {
+      // If serverUrl provided, validate the token
+      if (serverUrl != null) {
+        final isValid = await validateToken(serverUrl);
+        if (!isValid) {
+          // Token invalid, clear it
+          await logout();
+          return false;
+        }
+      }
+      return true;
+    }
+
+    // Load from SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     _jwtToken = prefs.getString(_jwtTokenKey);
     _userId = prefs.getString(_userIdKey);
     _userEmail = prefs.getString(_userEmailKey);
     _userName = prefs.getString(_userNameKey);
+    _loginProvider = prefs.getString(_loginProviderKey);
+
+    // If token found and serverUrl provided, validate it
+    if (_jwtToken != null && serverUrl != null) {
+      final isValid = await validateToken(serverUrl);
+      if (!isValid) {
+        // Token invalid, clear it
+        await logout();
+        return false;
+      }
+    }
 
     return _jwtToken != null;
   }
@@ -85,6 +128,9 @@ class AuthService {
 
   /// Get current user name
   String? get userName => _userName;
+
+  /// Get login provider ('google' or 'microsoft')
+  String? get loginProvider => _loginProvider;
 
   /// Login with Google
   Future<Map<String, dynamic>> loginWithGoogle(String serverUrl) async {
@@ -130,14 +176,16 @@ class AuthService {
         _userId = data['user_id'];
         _userEmail = data['email'];
         _userName = data['display_name'];
+        _loginProvider = 'google';
 
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_jwtTokenKey, _jwtToken!);
         await prefs.setString(_userIdKey, _userId!);
         await prefs.setString(_userEmailKey, _userEmail!);
         await prefs.setString(_userNameKey, _userName!);
+        await prefs.setString(_loginProviderKey, _loginProvider!);
 
-        debugPrint('✅ Login successful: $_userName ($_userEmail)');
+        debugPrint('✅ Google login successful: $_userName ($_userEmail)');
 
         return {
           'success': true,
@@ -214,14 +262,16 @@ class AuthService {
         _userId = data['user_id'];
         _userEmail = data['email'];
         _userName = data['display_name'];
+        _loginProvider = 'microsoft';
 
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_jwtTokenKey, _jwtToken!);
         await prefs.setString(_userIdKey, _userId!);
         await prefs.setString(_userEmailKey, _userEmail!);
         await prefs.setString(_userNameKey, _userName!);
+        await prefs.setString(_loginProviderKey, _loginProvider!);
 
-        debugPrint('✅ Login successful: $_userName ($_userEmail)');
+        debugPrint('✅ Microsoft login successful: $_userName ($_userEmail)');
 
         return {
           'success': true,
@@ -261,12 +311,14 @@ class AuthService {
     _userId = null;
     _userEmail = null;
     _userName = null;
+    _loginProvider = null;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_jwtTokenKey);
     await prefs.remove(_userIdKey);
     await prefs.remove(_userEmailKey);
     await prefs.remove(_userNameKey);
+    await prefs.remove(_loginProviderKey);
 
     debugPrint('✅ Logged out');
   }

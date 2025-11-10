@@ -39,10 +39,8 @@ class _QueueIndicatorState extends State<QueueIndicator> {
 
   @override
   Widget build(BuildContext context) {
-    // Toon alleen als er items zijn
-    if (_queueCount == 0) {
-      return const SizedBox.shrink();
-    }
+    // Altijd tonen, ook bij 0 items (grayed out als leeg)
+    final bool isEmpty = _queueCount == 0;
 
     return Positioned(
       top: 60,
@@ -59,7 +57,7 @@ class _QueueIndicatorState extends State<QueueIndicator> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.blue,
+            color: isEmpty ? Colors.grey : Colors.blue,
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
@@ -86,8 +84,8 @@ class _QueueIndicatorState extends State<QueueIndicator> {
                 ),
                 child: Text(
                   '$_queueCount',
-                  style: const TextStyle(
-                    color: Colors.blue,
+                  style: TextStyle(
+                    color: isEmpty ? Colors.grey : Colors.blue,
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
                   ),
