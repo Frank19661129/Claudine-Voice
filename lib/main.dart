@@ -141,12 +141,15 @@ class _VoiceScreenState extends State<VoiceScreen>
   bool _serverConnected = false;
   String _serverStatus = 'Checking...';
 
-  // Multi-provider Authentication
+  // Multi-provider Authentication (Calendar)
   bool _o365Authenticated = false;
   String _o365User = '';
   bool _googleAuthenticated = false;
   String _googleUser = '';
   String? _activeProvider;  // 'o365' or 'google'
+
+  // User Login Provider
+  String? _loginProvider;  // 'google' or 'microsoft'
 
   // Conversation history
   final List<Map<String, String>> _history = [];
@@ -749,6 +752,27 @@ class _VoiceScreenState extends State<VoiceScreen>
         _activeProvider = null;
       });
     }
+
+    // Also check login provider
+    await _checkLoginProvider();
+  }
+
+  Future<void> _checkLoginProvider() async {
+    try {
+      final userInfo = await _api.getCurrentUser();
+      if (userInfo != null) {
+        setState(() {
+          _loginProvider = userInfo['provider'];
+        });
+        debugPrint('👤 Logged in with: $_loginProvider');
+      } else {
+        setState(() {
+          _loginProvider = null;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Failed to check login provider: $e');
+    }
   }
 
   void _openSettings() {
@@ -955,6 +979,56 @@ class _VoiceScreenState extends State<VoiceScreen>
     );
   }
 
+  Widget _buildLoginProviderBadge() {
+    if (_loginProvider == null) return const SizedBox.shrink();
+
+    // Determine colors and icon based on provider
+    Color badgeColor;
+    String text;
+    Color textColor = Colors.white;
+
+    if (_loginProvider == 'google') {
+      badgeColor = Colors.red.shade700;
+      text = 'Google';
+    } else if (_loginProvider == 'microsoft') {
+      badgeColor = Colors.blue.shade700;
+      text = 'Microsoft';
+    } else {
+      badgeColor = Colors.grey.shade700;
+      text = _loginProvider!;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: badgeColor.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.3), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            _loginProvider == 'google'
+              ? Icons.g_mobiledata
+              : Icons.business,
+            color: textColor,
+            size: 16,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildQueueBadge() {
     return StreamBuilder<int>(
       stream: _queueManager.queueCountStream,
@@ -1026,6 +1100,11 @@ class _VoiceScreenState extends State<VoiceScreen>
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Login provider badge
+                  if (_loginProvider != null) ...[
+                    _buildLoginProviderBadge(),
+                    const SizedBox(width: 8),
+                  ],
                   // Queue indicator badge
                   _buildQueueBadge(),
                   const SizedBox(width: 8),

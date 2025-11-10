@@ -1,12 +1,31 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Service voor communicatie met Claudine Server
 class ClaudineApiService {
   // Server URL - gebruik laptop IP wanneer je vanaf telefoon test
   // Vind je laptop IP: Windows -> ipconfig (zoek WiFi adapter IPv4)
   static const String baseUrl = 'http://100.104.213.54:8001'; // WIJZIG NAAR JE LAPTOP IP!
+
+  /// Get auth headers (JWT token) if user is logged in
+  Future<Map<String, String>> _getAuthHeaders() async {
+    try {
+      final authHeaders = await Future(() async {
+        // Import dynamically to avoid circular dependencies
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('claudine_jwt_token');
+        if (token != null) {
+          return {'Authorization': 'Bearer $token'};
+        }
+        return <String, String>{};
+      });
+      return authHeaders;
+    } catch (e) {
+      return {};
+    }
+  }
 
   /// Check of de server bereikbaar is
   Future<bool> checkHealth() async {
@@ -170,12 +189,29 @@ class ClaudineApiService {
 
   /// Verwerk natuurlijke taal opdracht (experimental)
   /// Dit stuurt de ruwe tekst naar de server voor verwerking
-  Future<Map<String, dynamic>?> createEventFromVoice(String command) async {
+  Future<Map<String, dynamic>?> createEventFromVoice(
+    String command, {
+    String? location,
+  }) async {
     try {
+      // Get auth headers if available
+      Map<String, String> headers = {'Content-Type': 'application/json'};
+      try {
+        final authHeaders = await _getAuthHeaders();
+        headers.addAll(authHeaders);
+      } catch (e) {
+        debugPrint('⚠️ No auth headers available (backward compat mode)');
+      }
+
+      final requestBody = {
+        'command': command,
+        if (location != null) 'location': location,
+      };
+
       final response = await http.post(
         Uri.parse('$baseUrl/api/calendar/create-from-voice'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'command': command}),
+        headers: headers,
+        body: json.encode(requestBody),
       ).timeout(const Duration(seconds: 20));
 
       if (response.statusCode == 200) {
@@ -184,6 +220,49 @@ class ClaudineApiService {
       return null;
     } catch (e) {
       print('Create from voice failed: $e');
+      return null;
+    }
+  }
+
+  /// Set primary calendar provider
+  Future<bool> setPrimaryProvider(String provider) async {
+    try {
+      debugPrint('⭐ Setting primary provider to: $provider');
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/auth/set-primary'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'provider': provider}),
+      ).timeout(const Duration(seconds: 10));
+
+      debugPrint('📡 Set primary response: ${response.statusCode}');
+      debugPrint('📦 Response body: ${response.body}');
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('❌ Set primary provider failed: $e');
+      return false;
+    }
+  }
+
+  /// Get current user info (including login provider)
+  Future<Map<String, dynamic>?> getCurrentUser() async {
+    try {
+      final authHeaders = await _getAuthHeaders();
+      if (authHeaders.isEmpty) {
+        return null; // Not logged in
+      }
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/auth/user/me'),
+        headers: authHeaders,
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('❌ Get current user failed: $e');
       return null;
     }
   }
