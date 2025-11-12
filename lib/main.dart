@@ -108,22 +108,38 @@ class _ClaudineVoiceMVPState extends State<ClaudineVoiceMVP> {
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
-        // Corporate Dark Theme - Royal Blue + Ash
+        // Corporate Dark Theme - Royal Blue + Ash (GS.ai style)
         colorScheme: ColorScheme.dark(
-          primary: const Color(0xFF002366),  // Royal Blue
-          secondary: const Color(0xFFB2BEB5), // Ash Gray
-          surface: const Color(0xFF1a1a1a),   // Card background
-          background: const Color(0xFF0a0a0a), // Main background
+          primary: const Color(0xFF002366),      // Royal Blue
+          secondary: const Color(0xFFB2BEB5),    // Ash Gray
+          tertiary: const Color(0xFF003d99),     // Lighter Royal Blue
+          surface: const Color(0xFF1a1a1a),      // Card surface
+          background: const Color(0xFF002366),   // Royal Blue background
           onPrimary: Colors.white,
           onSecondary: const Color(0xFF0a0a0a),
-          onSurface: Colors.white,
+          onSurface: const Color(0xFFB2BEB5),    // Ash text on surfaces
           onBackground: Colors.white,
         ),
-        scaffoldBackgroundColor: const Color(0xFF0a0a0a),
+        scaffoldBackgroundColor: const Color(0xFF002366),  // Royal Blue
         cardColor: const Color(0xFF1a1a1a),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF1a1a1a),
+          backgroundColor: Color(0xFF002366),  // Royal Blue
+          foregroundColor: Colors.white,
           elevation: 0,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF003d99),  // Lighter blue for buttons
+            foregroundColor: Colors.white,
+          ),
+        ),
+        cardTheme: CardThemeData(
+          color: const Color(0xFF1a1a1a),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Color(0xFF2a2a2a), width: 1),
+          ),
         ),
       ),
       routes: {
@@ -1266,7 +1282,7 @@ class _VoiceScreenState extends State<VoiceScreen>
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: const Color(0xFFB2BEB5).withOpacity(0.2),  // Ash gray
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
@@ -1293,7 +1309,7 @@ class _VoiceScreenState extends State<VoiceScreen>
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.2),
+              color: const Color(0xFF1a1a1a).withOpacity(0.5),  // Dark card
               borderRadius: BorderRadius.circular(8),
             ),
             child: Column(
@@ -1380,7 +1396,7 @@ class _VoiceScreenState extends State<VoiceScreen>
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: const Color(0xFF1a1a1a).withOpacity(0.5),  // Dark card
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Text(
@@ -1421,28 +1437,29 @@ class _VoiceScreenState extends State<VoiceScreen>
   // Helper methods
 
   List<Color> _getGradientColors() {
+    // Corporate Royal Blue + Ash gradient (like GS.ai HTML)
     switch (_state) {
       case VoiceState.idle:
-        return [Colors.blue.shade400, Colors.blue.shade700];
+        return [const Color(0xFF002366), const Color(0xFF003d99)]; // Royal Blue gradient
       case VoiceState.listening:
-        return [Colors.purple.shade400, Colors.purple.shade700];
+        return [const Color(0xFF003d99), const Color(0xFF0052CC)]; // Lighter blue for listening
       case VoiceState.processing:
-        return [Colors.orange.shade400, Colors.orange.shade700];
+        return [const Color(0xFF002366), const Color(0xFF004080)]; // Processing blue
       case VoiceState.speaking:
-        return [Colors.green.shade400, Colors.green.shade700];
+        return [const Color(0xFF002366), const Color(0xFFB2BEB5)]; // Blue to Ash
     }
   }
 
   Color _getVisualizerColor() {
     switch (_state) {
       case VoiceState.idle:
-        return Colors.white.withOpacity(0.3);
+        return const Color(0xFFB2BEB5).withOpacity(0.3); // Ash gray idle
       case VoiceState.listening:
-        return Colors.purple.shade300;
+        return const Color(0xFFB2BEB5); // Ash gray listening
       case VoiceState.processing:
-        return Colors.orange.shade300;
+        return const Color(0xFF003d99); // Lighter royal blue processing
       case VoiceState.speaking:
-        return Colors.green.shade300;
+        return const Color(0xFFB2BEB5); // Ash gray speaking
     }
   }
 
