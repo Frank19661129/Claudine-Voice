@@ -2,7 +2,7 @@ name: claudine_voice
 description: "Claudine Voice Assistant - MVP"
 publish_to: 'none'
 
-version: 1.0.0+63
+version: 1.0.0+72
 
 environment:
   sdk: ^3.9.2
@@ -20,9 +20,16 @@ dependencies:
 
   # AI Backend
   http: ^1.2.2               # API calls
+  dio: ^5.4.0                # HTTP client with upload progress support
 
   # State Management
   flutter_riverpod: ^2.5.1
+
+  # Camera & Scanning
+  camera: ^0.10.5+5          # Camera access and preview
+  image: ^4.1.3              # Image processing (compress, resize)
+  pdf: ^3.10.7               # PDF generation from images
+  path_provider: ^2.1.1      # Access local directories
 
   # Permissions
   permission_handler: ^11.3.1
@@ -40,6 +47,8 @@ dependencies:
   sqflite: ^2.3.0           # SQLite database for local queue
   path: ^1.8.3              # Path utilities for database
   shared_preferences: ^2.2.2  # JWT token storage
+  uuid: ^4.5.1              # UUID generation for offline-first
+  connectivity_plus: ^5.0.0  # Network state monitoring
 
   # Authentication
   google_sign_in: ^6.2.1    # Google OAuth login
@@ -48,6 +57,7 @@ dependencies:
 
   # UI
   cupertino_icons: ^1.0.8
+  url_launcher: ^6.2.5      # Open URLs in browser
 
 dev_dependencies:
   flutter_test:

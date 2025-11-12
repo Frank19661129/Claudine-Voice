@@ -17,10 +17,13 @@ import 'services/queue_manager.dart';
 import 'services/auth_service.dart';
 import 'models/queue_item.dart';
 import 'widgets/queue_indicator.dart';
+import 'widgets/device_flow_dialog.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/queue_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/notes_list_screen.dart';
+// import 'screens/scan_camera_screen.dart'; // Temporarily disabled - fixing bugs
 
 // Global navigator key for auth flows
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -252,6 +255,7 @@ class _VoiceScreenState extends State<VoiceScreen>
 
   Future<void> _loadVersion() async {
     final packageInfo = await PackageInfo.fromPlatform();
+    if (!mounted) return;
     setState(() {
       _versionInfo = 'v${packageInfo.version}+${packageInfo.buildNumber}';
     });
@@ -481,6 +485,15 @@ class _VoiceScreenState extends State<VoiceScreen>
           final text = result.recognizedWords;
           _lastSpeechTime = DateTime.now();
 
+          debugPrint('🎙️ Speech result: "$text" (final: ${result.finalResult})');
+
+          // DEBUG: Check for "notitie" keyword
+          if (text.toLowerCase().contains('notitie')) {
+            debugPrint('🗒️ === NOTITIE DETECTED in speech result ===');
+            debugPrint('🗒️ Full text: "$text"');
+            debugPrint('🗒️ Is final: ${result.finalResult}');
+          }
+
           // Detect filler words and incomplete sentences
           final hasFillerWord = _detectFillerWords(text);
           final seemsIncomplete = _detectIncomplete(text);
@@ -503,6 +516,7 @@ class _VoiceScreenState extends State<VoiceScreen>
           });
 
           if (result.finalResult) {
+            debugPrint('✅ Final result, calling _processInput()');
             _processInput(text);
           }
         },
@@ -568,6 +582,13 @@ class _VoiceScreenState extends State<VoiceScreen>
   Future<void> _processInput(String text) async {
     debugPrint('🧠 === PROCESS INPUT CALLED ===');
     debugPrint('🧠 Input text: "$text"');
+    debugPrint('🧠 Text length: ${text.length}');
+
+    // DEBUG: Check for "notitie" keyword
+    if (text.toLowerCase().contains('notitie')) {
+      debugPrint('🗒️ === NOTITIE DETECTED in _processInput ===');
+      debugPrint('🗒️ Full text: "$text"');
+    }
 
     if (text.isEmpty) {
       debugPrint('⚠️ Empty text, skipping');
@@ -603,6 +624,8 @@ class _VoiceScreenState extends State<VoiceScreen>
       final lowerText = text.toLowerCase();
       QueueItemType commandType = QueueItemType.general;
 
+      debugPrint('🔍 Analyzing command type for: "$lowerText"');
+
       // Check for reminder/calendar keywords
       if (lowerText.contains('herinner') ||
           lowerText.contains('reminder') ||
@@ -613,6 +636,18 @@ class _VoiceScreenState extends State<VoiceScreen>
         debugPrint('🔔 Detected REMINDER command');
       }
 
+      // DEBUG: Check for note keywords (not yet implemented)
+      if (lowerText.contains('notitie') || lowerText.contains('note')) {
+        debugPrint('🗒️ === NOTE KEYWORD DETECTED ===');
+        debugPrint('🗒️ Command will be queued as: ${commandType.toString()}');
+        debugPrint('🗒️ Location: ${location ?? "none"}');
+      }
+
+      debugPrint('📋 Creating queue item...');
+      debugPrint('   Type: ${commandType.toString()}');
+      debugPrint('   Command: "$text"');
+      debugPrint('   Location: ${location ?? "none"}');
+
       // Add to queue for async processing
       final queueItem = QueueItem.create(
         command: text,
@@ -622,8 +657,10 @@ class _VoiceScreenState extends State<VoiceScreen>
         },
       );
 
+      debugPrint('📤 Submitting to queue manager...');
+
       // Add to queue (fire and forget - async)
-      _queueManager.addToQueue(queueItem);
+      await _queueManager.addToQueue(queueItem);
 
       debugPrint('✅ Added to queue, will process async');
 
@@ -638,7 +675,7 @@ class _VoiceScreenState extends State<VoiceScreen>
       debugPrint('User: $text');
       debugPrint('Claudine: [Queue processing]');
     } catch (e) {
-      debugPrint('Error: $e');
+      debugPrint('❌ Error in _processInput: $e');
       _showError('Fout: ${e.toString()}');
       setState(() => _state = VoiceState.idle);
     }
@@ -740,6 +777,7 @@ class _VoiceScreenState extends State<VoiceScreen>
       debugPrint('🌐 Checking server connection...');
       final isHealthy = await _api.checkHealth();
 
+      if (!mounted) return;
       setState(() {
         _serverConnected = isHealthy;
         _serverStatus = isHealthy ? 'Connected' : 'Offline';
@@ -748,6 +786,7 @@ class _VoiceScreenState extends State<VoiceScreen>
       debugPrint('🌐 Server status: $_serverStatus');
     } catch (e) {
       debugPrint('❌ Server check failed: $e');
+      if (!mounted) return;
       setState(() {
         _serverConnected = false;
         _serverStatus = 'Error';
@@ -760,6 +799,7 @@ class _VoiceScreenState extends State<VoiceScreen>
       debugPrint('📧 Checking auth status (O365 + Google)...');
       final authInfo = await _api.getAuthInfo();
 
+      if (!mounted) return;
       if (authInfo != null) {
         // O365 status
         final o365Info = authInfo['o365'] ?? {};
@@ -787,6 +827,7 @@ class _VoiceScreenState extends State<VoiceScreen>
       }
     } catch (e) {
       debugPrint('❌ Failed to check auth status: $e');
+      if (!mounted) return;
       setState(() {
         _o365Authenticated = false;
         _o365User = '';
@@ -801,6 +842,8 @@ class _VoiceScreenState extends State<VoiceScreen>
     try {
       debugPrint('🔍 Checking login provider...');
       final userInfo = await _api.getCurrentUser();
+      if (!mounted) return;
+
       if (userInfo != null) {
         final provider = userInfo['provider'];
         debugPrint('✅ Setting login provider to: $provider');
@@ -847,30 +890,33 @@ class _VoiceScreenState extends State<VoiceScreen>
 
   Future<void> _handleLogin(String provider) async {
     try {
-      debugPrint('🔐 Login to $provider...');
+      debugPrint('🔐 Starting device flow login for $provider...');
 
-      // Queue the login request
-      await _queueManager.addToQueue(
-        QueueItem.create(
-          command: 'Login to $provider',
-          type: QueueItemType.general,
-          metadata: {'action': 'login', 'provider': provider},
+      // Show device flow dialog
+      final success = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => DeviceFlowDialog(
+          provider: provider,
+          api: _api,
         ),
       );
 
-      // Show feedback
-      if (mounted) {
+      if (success == true && mounted) {
+        // Success - refresh auth status
+        debugPrint('✅ Device flow login successful for $provider');
+        await _checkAuthStatus();
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Login to $provider queued'),
-            duration: const Duration(seconds: 2),
+            content: Text('✅ Successfully logged in to $provider calendar'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
           ),
         );
+      } else if (mounted) {
+        debugPrint('❌ Device flow login cancelled or failed');
       }
-
-      // Refresh auth status after a moment
-      await Future.delayed(const Duration(seconds: 1));
-      await _checkAuthStatus();
     } catch (e) {
       debugPrint('❌ Login failed: $e');
       if (mounted) {
@@ -945,11 +991,16 @@ class _VoiceScreenState extends State<VoiceScreen>
           _activeProvider = provider;
         });
 
-        // Show feedback
+        // Close settings screen to force refresh with new state
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+
+        // Show feedback on main screen
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('$provider set as primary mailbox'),
+              content: Text('⭐ $provider set as primary mailbox'),
               duration: const Duration(seconds: 2),
               backgroundColor: Colors.green,
             ),
@@ -1235,21 +1286,20 @@ class _VoiceScreenState extends State<VoiceScreen>
               children: [
                 // Server status
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
                       _serverConnected ? Icons.cloud_done : Icons.cloud_off,
-                      color: _serverConnected ? Colors.green[300] : Colors.red[300],
-                      size: 14,
+                      color: Colors.white,
+                      size: 20,
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Server: $_serverStatus',
-                        style: TextStyle(
-                          color: _serverConnected ? Colors.green[300] : Colors.red[300],
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Server: $_serverStatus',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],
@@ -1261,6 +1311,7 @@ class _VoiceScreenState extends State<VoiceScreen>
       ),
     );
   }
+
 
   Widget _buildVisualizer() {
     return AnimatedBuilder(
