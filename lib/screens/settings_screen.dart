@@ -12,6 +12,7 @@ class SettingsScreen extends StatefulWidget {
   final Function(String provider) onSetPrimaryProvider;
   final Function(String provider) onLogin;
   final Function(String provider) onLogout;
+  final VoidCallback? onRefreshNeeded;  // Callback to refresh auth status
   final String locationName;
   final String locationStreet;
   final String locationInfo;
@@ -27,6 +28,7 @@ class SettingsScreen extends StatefulWidget {
     required this.onSetPrimaryProvider,
     required this.onLogin,
     required this.onLogout,
+    this.onRefreshNeeded,
     this.locationName = '',
     this.locationStreet = '',
     this.locationInfo = '',
@@ -290,7 +292,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () => widget.onLogin(provider),
+                  onPressed: () async {
+                    await widget.onLogin(provider);
+                    // Refresh auth status after login
+                    widget.onRefreshNeeded?.call();
+                  },
                   icon: const Icon(Icons.login),
                   label: const Text('Login'),
                   style: ElevatedButton.styleFrom(

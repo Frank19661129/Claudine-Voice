@@ -51,12 +51,14 @@ class _DeviceFlowDialogState extends State<DeviceFlowDialog> {
     });
 
     try {
-      final result = await widget.api.startDeviceFlow();
+      // FIX: Pass provider parameter to support multi-user calendar auth
+      final result = await widget.api.startDeviceFlow(widget.provider);
 
       if (result != null && mounted) {
         setState(() {
           _userCode = result['user_code'];
-          _verificationUrl = result['verification_uri'];
+          // Handle both 'verification_uri' and 'verification_url' keys
+          _verificationUrl = result['verification_uri'] ?? result['verification_url'];
           _deviceCode = result['device_code'];
           _expiresIn = result['expires_in'] ?? 900;
           _isLoading = false;
@@ -94,7 +96,8 @@ class _DeviceFlowDialogState extends State<DeviceFlowDialog> {
       }
 
       try {
-        final result = await widget.api.checkAuthStatus(_deviceCode!);
+        // FIX: Pass provider parameter for multi-user support
+        final result = await widget.api.checkAuthStatus(_deviceCode!, widget.provider);
 
         if (result != null && result['success'] == true) {
           // Success!
@@ -153,9 +156,40 @@ class _DeviceFlowDialogState extends State<DeviceFlowDialog> {
 
   Future<void> _openUrl() async {
     if (_verificationUrl != null) {
-      final uri = Uri.parse(_verificationUrl!);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      try {
+        final uri = Uri.parse(_verificationUrl!);
+        debugPrint('🌐 Opening URL: $_verificationUrl');
+
+        // Try to launch URL directly - don't check canLaunchUrl first as it's unreliable
+        final launched = await launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,
+        );
+
+        if (!launched) {
+          debugPrint('❌ Failed to launch URL');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Could not open browser. Please visit: $_verificationUrl'),
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+        } else {
+          debugPrint('✅ Browser opened successfully');
+        }
+      } catch (e) {
+        debugPrint('❌ Error opening URL: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error opening browser: $e'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
       }
     }
   }

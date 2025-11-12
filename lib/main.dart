@@ -106,8 +106,25 @@ class _ClaudineVoiceMVPState extends State<ClaudineVoiceMVP> {
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
+        brightness: Brightness.dark,
+        // Corporate Dark Theme - Royal Blue + Ash
+        colorScheme: ColorScheme.dark(
+          primary: const Color(0xFF002366),  // Royal Blue
+          secondary: const Color(0xFFB2BEB5), // Ash Gray
+          surface: const Color(0xFF1a1a1a),   // Card background
+          background: const Color(0xFF0a0a0a), // Main background
+          onPrimary: Colors.white,
+          onSecondary: const Color(0xFF0a0a0a),
+          onSurface: Colors.white,
+          onBackground: Colors.white,
+        ),
+        scaffoldBackgroundColor: const Color(0xFF0a0a0a),
+        cardColor: const Color(0xFF1a1a1a),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF1a1a1a),
+          elevation: 0,
+        ),
       ),
       routes: {
         '/home': (context) => const HomeScreen(),
@@ -780,7 +797,7 @@ class _VoiceScreenState extends State<VoiceScreen>
       if (!mounted) return;
       setState(() {
         _serverConnected = isHealthy;
-        _serverStatus = isHealthy ? 'Connected' : 'Offline';
+        _serverStatus = isHealthy ? 'Claudine Server Connected' : 'Claudine Server Offline';
       });
 
       debugPrint('🌐 Server status: $_serverStatus');
@@ -789,7 +806,7 @@ class _VoiceScreenState extends State<VoiceScreen>
       if (!mounted) return;
       setState(() {
         _serverConnected = false;
-        _serverStatus = 'Error';
+        _serverStatus = 'Claudine Server Error';
       });
     }
   }
@@ -876,6 +893,12 @@ class _VoiceScreenState extends State<VoiceScreen>
           onSetPrimaryProvider: _handleSetPrimaryProvider,
           onLogin: _handleLogin,
           onLogout: _handleLogout,
+          onRefreshNeeded: () {
+            // Refresh auth status and rebuild settings screen
+            setState(() {
+              // Trigger rebuild with updated auth state
+            });
+          },
           locationName: _locationName,
           locationStreet: _locationStreet,
           locationInfo: _locationInfo,
@@ -1265,15 +1288,6 @@ class _VoiceScreenState extends State<VoiceScreen>
               ),
             ],
           ),
-          // Login provider badge (on separate line)
-          if (_loginProvider != null) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _buildLoginProviderBadge(),
-              ],
-            ),
-          ],
           // Status indicators
           const SizedBox(height: 12),
           Container(

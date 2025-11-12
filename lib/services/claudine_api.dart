@@ -105,47 +105,75 @@ class ClaudineApiService {
   /// Check of gebruiker is geauthenticeerd
   Future<Map<String, dynamic>?> getAuthInfo() async {
     try {
-      print('🔍 Checking auth at: $baseUrl/api/auth/info');
+      // FIX: Add JWT auth headers for multi-user support
+      final headers = await _getAuthHeaders();
+
+      debugPrint('🔍 Checking auth at: $baseUrl/api/auth/info');
+      debugPrint('🔐 Auth headers: ${headers.containsKey('Authorization') ? 'YES' : 'NO'}');
+
       final response = await http.get(
         Uri.parse('$baseUrl/api/auth/info'),
+        headers: headers,
       ).timeout(const Duration(seconds: 5));
 
-      print('📡 Auth response: ${response.statusCode}');
-      print('📦 Auth body: ${response.body}');
+      debugPrint('📡 Auth response: ${response.statusCode}');
+      debugPrint('📦 Auth body: ${response.body}');
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
       }
       return null;
     } catch (e) {
-      print('❌ Get auth info failed: $e');
+      debugPrint('❌ Get auth info failed: $e');
       return null;
     }
   }
 
-  /// Start Device Code Flow voor authenticatie
-  Future<Map<String, dynamic>?> startDeviceFlow() async {
+  /// Start Device Code Flow voor authenticatie (multi-user support)
+  Future<Map<String, dynamic>?> startDeviceFlow(String provider) async {
     try {
+      // FIX: Use new multi-user endpoint with JWT auth headers
+      final headers = await _getAuthHeaders();
+
+      debugPrint('🔐 Starting device flow for provider: $provider');
+      debugPrint('🔐 Auth headers: ${headers.containsKey('Authorization') ? 'YES' : 'NO'}');
+
       final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/start'),
+        Uri.parse('$baseUrl/api/auth/device-flow/start?provider=$provider'),
+        headers: headers,
       ).timeout(const Duration(seconds: 10));
 
+      debugPrint('📡 Device flow start response: ${response.statusCode}');
+
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        final data = json.decode(response.body);
+        debugPrint('✅ Device flow started: ${data['user_code']}');
+        return data;
       }
       return null;
     } catch (e) {
-      print('Start device flow failed: $e');
+      debugPrint('❌ Start device flow failed: $e');
       return null;
     }
   }
 
-  /// Check of device flow autorisatie is voltooid
-  Future<Map<String, dynamic>?> checkAuthStatus(String deviceCode) async {
+  /// Check of device flow autorisatie is voltooid (multi-user support)
+  Future<Map<String, dynamic>?> checkAuthStatus(String deviceCode, String provider) async {
     try {
+      // FIX: Use provider-specific endpoints with JWT auth headers
+      final headers = await _getAuthHeaders();
+      headers['Content-Type'] = 'application/json';
+
+      // Provider-specific endpoints
+      final endpoint = provider == 'google'
+          ? '$baseUrl/api/auth/google/status'
+          : '$baseUrl/api/auth/status';
+
+      debugPrint('📡 Polling auth status for $provider: $endpoint');
+
       final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/status'),
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse(endpoint),
+        headers: headers,
         body: json.encode({'device_code': deviceCode}),
       ).timeout(const Duration(seconds: 10));
 
@@ -154,7 +182,7 @@ class ClaudineApiService {
       }
       return null;
     } catch (e) {
-      print('Check auth status failed: $e');
+      debugPrint('❌ Check auth status failed: $e');
       return null;
     }
   }
@@ -176,8 +204,12 @@ class ClaudineApiService {
   /// Haal beschikbare kalenders op
   Future<List<dynamic>?> getCalendars() async {
     try {
+      // FIX: Add auth headers for multi-user support
+      final headers = await _getAuthHeaders();
+
       final response = await http.get(
         Uri.parse('$baseUrl/api/calendar/calendars'),
+        headers: headers,
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -219,9 +251,19 @@ class ClaudineApiService {
       debugPrint('🌐 Provider: ${provider ?? "auto-detect"}');
       debugPrint('🌐 Payload: ${json.encode(payload)}');
 
+      // Get auth headers
+      Map<String, String> headers = {'Content-Type': 'application/json'};
+      try {
+        final authHeaders = await _getAuthHeaders();
+        headers.addAll(authHeaders);
+        debugPrint('🔐 Auth headers added');
+      } catch (e) {
+        debugPrint('⚠️ No auth headers available: $e');
+      }
+
       final response = await http.post(
         Uri.parse(url),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: json.encode(payload),
       ).timeout(const Duration(seconds: 15));
 
@@ -314,10 +356,17 @@ class ClaudineApiService {
   Future<bool> setPrimaryProvider(String provider) async {
     try {
       debugPrint('⭐ Setting primary provider to: $provider');
+
+      // Get auth headers (CRITICAL FIX - was missing!)
+      final headers = await _getAuthHeaders();
+      headers['Content-Type'] = 'application/json';
+
+      debugPrint('🔐 Auth headers: ${headers.containsKey('Authorization') ? 'YES' : 'NO'}');
+
+      // FIX: Use path parameter instead of body (server expects path param!)
       final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/set-primary'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'provider': provider}),
+        Uri.parse('$baseUrl/api/auth/set-primary/$provider'),
+        headers: headers,
       ).timeout(const Duration(seconds: 10));
 
       debugPrint('📡 Set primary response: ${response.statusCode}');
